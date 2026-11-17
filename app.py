@@ -28,7 +28,10 @@ section[data-testid="stSidebar"]{{background:{CARD};border-right:1px solid {MID}
 /* inputs: dark field, light text, visible border */
 div[data-baseweb="input"], div[data-baseweb="base-input"], div[data-baseweb="select"] > div, div[data-baseweb="textarea"]{{
   background:#0b1a33!important;border:1px solid {MID}!important;}}
-input, textarea{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;caret-color:{GOLD};}}
+div[data-baseweb="input"] *, div[data-baseweb="base-input"], div[data-baseweb="select"] > div *,
+div[data-testid="stTextInputRootElement"], div[data-testid="stNumberInputContainer"]{{background:#0b1a33!important;}}
+input, textarea{{background:#0b1a33!important;color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;caret-color:{GOLD};}}
+div[data-baseweb="select"] svg{{fill:{LB}!important;}}
 input::placeholder{{color:{MUTED}!important;-webkit-text-fill-color:{MUTED}!important;opacity:1}}
 div[data-baseweb="select"] *{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;}}
 ul[role="listbox"]{{background:{CARD}!important;}}
@@ -40,8 +43,9 @@ label, label p, div[data-testid="stWidgetLabel"] p{{color:{LB}!important;-webkit
 div[data-testid="stCaptionContainer"] p{{color:{MUTED}!important;-webkit-text-fill-color:{MUTED}!important}}
 h1,h2,h3,h4{{color:{TXT}!important}}
 /* tabs */
-div[data-baseweb="tab-list"] button p{{color:{LB}!important;-webkit-text-fill-color:{LB}!important;font-weight:600}}
-div[data-baseweb="tab-list"] button[aria-selected="true"] p{{color:{GOLD}!important;-webkit-text-fill-color:{GOLD}!important}}
+[role="tab"], [role="tab"] *{{color:{LB}!important;-webkit-text-fill-color:{LB}!important;font-weight:600}}
+[role="tab"][aria-selected="true"], [role="tab"][aria-selected="true"] *{{color:{GOLD}!important;-webkit-text-fill-color:{GOLD}!important}}
+div[data-baseweb="tab-highlight"]{{background:{GOLD}!important}}
 /* buttons: primary = gold with navy text; secondary = navy with gold border and white text */
 button[data-testid="stBaseButton-primary"], button[kind="primary"]{{background:{GOLD}!important;border:1px solid {GOLD}!important;}}
 button[data-testid="stBaseButton-primary"] *, button[kind="primary"] *{{color:{BLUE}!important;-webkit-text-fill-color:{BLUE}!important;font-weight:800}}
@@ -58,6 +62,7 @@ div[data-testid="stExpander"] li, div[data-testid="stExpander"] p{{color:{TXT}!i
 /* radio / slider text */
 div[role="radiogroup"] p{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important}}
 div[data-testid="stSliderTickBarMin"], div[data-testid="stSliderTickBarMax"], div[data-testid="stThumbValue"]{{color:{GOLD}!important}}
+div[data-testid="stSlider"] div[role="slider"]{{background:{GOLD}!important;border-color:{GOLD}!important}}
 </style>""")
 
 
