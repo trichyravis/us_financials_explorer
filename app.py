@@ -358,6 +358,20 @@ else:
     for c_, (h, v, s) in zip(cols, kp):
         c_.html(card(t(h.upper(), GOLD, 11, 800, "letter-spacing:1px") + "<br>" + t(v, TXT, 22, 800) + "<br>" + s))
 
+    @st.cache_data(ttl=6 * 3600, show_spinner=False)
+    def _fetched_at(key_):
+        return dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
+    _ts = q.get("timestamp")
+    _pdate = dt.datetime.fromtimestamp(_ts, dt.timezone.utc).strftime("%d %b %Y, %H:%M UTC") if isinstance(_ts, (int, float)) and _ts > 0 else "latest FMP quote"
+    _src = "Financial Modeling Prep (statements, quote, ratios) · U.S. Treasury (risk-free rate)"
+    _pnote = "quote may be delayed; not a real-time feed"
+    _fy = I["date"].iloc[-1] if "date" in I and len(I) else (I.index[-1] if len(I) else "–")
+    _ptxt = (f"<b>Source:</b> {_src} &nbsp;·&nbsp; <b>Statements:</b> {'quarterly' if per == 'quarter' else 'annual'}, "
+             f"latest period ending {_fy} &nbsp;·&nbsp; <b>Price as of:</b> {_pdate} &nbsp;·&nbsp; "
+             f"<b>Retrieved:</b> {_fetched_at((sym, per, lim)).strftime('%d %b %Y, %H:%M IST')} &nbsp;·&nbsp; {_pnote}")
+    st.html(f'<div style="border-left:3px solid {GOLD};background:rgba(17,34,64,.7);padding:7px 12px;margin:8px 0 4px;'
+            f'border-radius:6px;user-select:none;-webkit-user-select:none">{t(_ptxt, LB, 13)}</div>')
+
     tabs = st.tabs(["📈 Trends", "🧮 Ratios", "📑 Statements", "📉 Beta & returns", "👥 Peers", "🏦 Cost of capital",
                     "💵 DCF", "ℹ️ Company", "⬇️ Download"])
 
