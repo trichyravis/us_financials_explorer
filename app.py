@@ -602,7 +602,85 @@ else:
         src = st.radio("Beta to use", opts, horizontal=True, index=1 if reg_beta is not None else 0)
         dflt = float(reg_beta) if src == "Regression beta" else float(beta or 1.0)
         b_ = st.number_input("Beta", 0.0, 4.0, round(dflt, 2), 0.01, key=f"beta_{src}", disabled=(src != "Manual"))
-        kd_in = st.number_input("Pre-tax cost of debt (default = interest ÷ debt)", 0.0, 0.3, round(kd_pre, 4), 0.001, format="%.4f")
+        # ---------------- cost of debt: four methods ----------------
+        ann_ = 4 if per == "quarter" else 1  # quarterly statements: annualise the latest quarter
+        int_last = float(intexp.iloc[-1]) * ann_ if pd.notna(intexp.iloc[-1]) and intexp.iloc[-1] > 0 else None
+        d_prev = float(debt.iloc[-2]) if len(debt) > 1 and pd.notna(debt.iloc[-2]) else None
+        ebit_last = float(op.iloc[-1]) * ann_ if pd.notna(op.iloc[-1]) else None
+        kd_end = int_last / d_val if int_last and d_val else None
+        kd_avg = int_last / ((d_val + d_prev) / 2) if int_last and d_val and d_prev else None
+        icr = ebit_last / int_last if ebit_last is not None and int_last else None
+        # Damodaran, January 2026: interest coverage → synthetic rating → default spread (large non-financial firms)
+        RATING_TABLE = [(-1e9, 0.2, "D", 0.19), (0.2, 0.65, "C", 0.16), (0.65, 0.8, "CC", 0.1261), (0.8, 1.25, "CCC", 0.0885),
+                        (1.25, 1.5, "B-", 0.0509), (1.5, 1.75, "B", 0.0321), (1.75, 2.0, "B+", 0.0275), (2.0, 2.25, "BB", 0.0184),
+                        (2.25, 2.5, "BB+", 0.0138), (2.5, 3.0, "BBB", 0.0111), (3.0, 4.25, "A-", 0.0089), (4.25, 5.5, "A", 0.0078),
+                        (5.5, 6.5, "A+", 0.0070), (6.5, 8.5, "AA", 0.0055), (8.5, 1e12, "AAA", 0.0045)]
+        syn_rating, syn_spread = None, None
+        if icr is not None:
+            for lo_, hi_, rt_, sp_ in RATING_TABLE:
+                if lo_ < icr <= hi_:
+                    syn_rating, syn_spread = rt_, sp_
+                    break
+        elif ebit_last is not None and ebit_last > 0 and not int_last:
+            syn_rating, syn_spread = "AAA", 0.0045  # no interest expense: treat as top-rated
+        kd_syn = rf + syn_spread if syn_spread is not None else None
+        kd_methods = {"Interest ÷ year-end debt": kd_end, "Interest ÷ average debt": kd_avg,
+                      "Synthetic rating (Rf + spread)": kd_syn, "Manual": None}
+        kd_avail = [k for k, v in kd_methods.items() if v is not None] + ["Manual"]
+        kd_src = st.radio("Cost of debt method", kd_avail, horizontal=True, index=0,
+                          help="See 'How Kd is calculated' below for each method worked through.")
+        kd_dflt = kd_methods.get(kd_src) or (kd_pre or 0.0)
+        kd_in = st.number_input("Pre-tax cost of debt (Kd)", 0.0, 0.3, round(float(kd_dflt), 4), 0.001, format="%.4f",
+                                key=f"kd_{kd_src}", disabled=(kd_src != "Manual"))
+        with st.expander("📘 How Kd (cost of debt) is calculated"):
+            def _m(v):
+                return money(v, cur) if v is not None else "–"
+            def _p(v):
+                return f"{v:.2%}" if v is not None else "–"
+            rows_ = [
+                ("1. Interest ÷ year-end debt (book method)", "Kd = Interest expense ÷ Total debt",
+                 f"{_m(int_last)} ÷ {_m(d_val)} = <b>{_p(kd_end)}</b>" if kd_end is not None else "Not available (no interest or no debt reported).",
+                 "The average rate the company actually paid last year. Simple, but historical: it reflects old loans, "
+                 "not today's borrowing cost."),
+                ("2. Interest ÷ average debt", "Kd = Interest expense ÷ [(Opening debt + Closing debt) ÷ 2]",
+                 f"{_m(int_last)} ÷ (({_m(d_prev)} + {_m(d_val)}) ÷ 2) = <b>{_p(kd_avg)}</b>" if kd_avg is not None else "Not available (needs two balance sheets).",
+                 "Better matching: interest accrues through the year, so divide by the average debt outstanding, not one day's balance."),
+                ("3. Synthetic rating: Kd = Rf + default spread", "Interest coverage = EBIT ÷ Interest expense → rating → spread",
+                 (f"Coverage = {_m(ebit_last)} ÷ {_m(int_last)} = {icr:.2f}× → rating <b>{syn_rating}</b> → spread {syn_spread:.2%}; "
+                  f"Kd = {rf:.2%} (10-yr Treasury) + {syn_spread:.2%} = <b>{kd_syn:.2%}</b>") if icr is not None and kd_syn is not None else
+                 (f"No interest expense: treated as AAA, Kd = {rf:.2%} + 0.45% = <b>{kd_syn:.2%}</b>" if kd_syn is not None else "Not available (EBIT or interest missing)."),
+                 "A forward-looking, market-based rate: what a company with this coverage would pay to borrow today. "
+                 "This is the method Damodaran uses for unrated companies."),
+                ("4. Manual", "Enter your own Kd",
+                 "e.g. the yield to maturity on the company's traded bonds, or Rf + the spread for its actual credit rating.",
+                 "Best when the company has listed bonds or a published rating."),
+            ]
+            body_ = ""
+            for lab_, frm_, ex_, rd_ in rows_:
+                body_ += (f'<div style="border-left:4px solid {GOLD};padding:10px 14px;margin:0 0 12px;background:rgba(0,51,102,.35);border-radius:6px">'
+                          + t(lab_, GOLD, 15, 800) + "<br>" + t(frm_, TXT, 16, 700, "font-family:Georgia,serif") + "<br>"
+                          + t(ex_, LB, 14) + "<br>" + t(rd_, TXT, 14) + "</div>")
+            body_ += (t("After-tax cost of debt", GOLD, 15, 800) + "<br>" +
+                      t(f"Kd × (1 − t) = {kd_in:.2%} × (1 − {tax:.2%}) = <b>{kd_in * (1 - tax):.2%}</b>. "
+                        "Interest is tax-deductible, so each rupee/dollar of interest costs the company only (1 − t).", TXT, 14) + "<br><br>")
+            tbl_ = "".join(
+                f'<tr style="background:{"#004d80" if rt_ == syn_rating else "transparent"}">'
+                f'<td style="padding:3px 10px">{t(("> " + format(lo_, ".2f")) if lo_ > -1e8 else "≤ 0.20", TXT, 13)}</td>'
+                f'<td style="padding:3px 10px">{t(format(hi_, ".2f") if hi_ < 1e11 else "and above", TXT, 13)}</td>'
+                f'<td style="padding:3px 10px">{t(rt_, GOLD if rt_ == syn_rating else TXT, 13, 700)}</td>'
+                f'<td style="padding:3px 10px">{t(format(sp_, ".2%"), TXT, 13)}</td></tr>'
+                for lo_, hi_, rt_, sp_ in reversed(RATING_TABLE))
+            body_ += (t("Coverage → rating → spread table", GOLD, 15, 800) + "<br>" +
+                      f'<table style="border-collapse:collapse;margin:6px 0 10px"><tr>'
+                      f'<th style="padding:3px 10px;text-align:left">{t("Coverage >", LB, 13, 700)}</th>'
+                      f'<th style="padding:3px 10px;text-align:left">{t("up to", LB, 13, 700)}</th>'
+                      f'<th style="padding:3px 10px;text-align:left">{t("Rating", LB, 13, 700)}</th>'
+                      f'<th style="padding:3px 10px;text-align:left">{t("Spread", LB, 13, 700)}</th></tr>{tbl_}</table>' +
+                      t("Spreads are Damodaran's January 2026 table for large US non-financial firms (from traded US corporate bonds).", MUTED, 12) + "<br>" +
+                      t("Cautions: banks and NBFCs (interest is an operating cost) and near debt-free companies give meaningless "
+                        "book-method Kd; quarterly figures are annualised (× 4). Source: Damodaran, 'Ratings, Interest Coverage "
+                        "Ratios and Default Spread', January 2026.", MUTED, 12))
+            st.html(card(body_))
         ke = rf + b_ * mrp
         v = e_val + d_val
         we, wd = (e_val / v, d_val / v) if v else (1.0, 0.0)
@@ -767,7 +845,7 @@ else:
         rows_w = [("Risk-free rate (10-yr Treasury)", rf, PCT, True, "Input (sidebar / FMP Treasury)"),
                   ("Beta", b_, PS, True, f"Input ({src})"), ("Market risk premium", mrp, PCT, True, "Input"),
                   ("Cost of equity Ke", "=B6+B7*B8", '0.00%', False, "Rf + β × MRP"),
-                  ("Pre-tax cost of debt Kd", kd_in, '0.00%', True, "Input (default interest ÷ debt)"),
+                  ("Pre-tax cost of debt Kd", kd_in, '0.00%', True, f"Input ({kd_src})"),
                   ("Tax rate", tax, PCT, True, "Input"), ("After-tax cost of debt", "=B10*(1-B11)", '0.00%', False, "Kd × (1 − t)"),
                   (f"Equity value E ({cur.strip()} m, market cap)", (e_val or 0) / 1e6, NUM, True, "Market capitalisation"),
                   (f"Debt D ({cur.strip()} m, book)", d_val / 1e6, NUM, True, "Total debt, latest balance sheet"),
