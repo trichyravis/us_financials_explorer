@@ -23,13 +23,41 @@ SITE = "https://themountainpathacademy.com"
 st.set_page_config(page_title="US Company Financials Explorer | Mountain Path", page_icon="📊", layout="wide")
 st.html(f"""<style>
 .stApp{{background:{BG};}}
-section[data-testid="stSidebar"]{{background:{CARD};}}
-section[data-testid="stSidebar"] *{{color:{TXT};}}
-section[data-testid="stSidebar"] input{{color:#0b1a33!important;-webkit-text-fill-color:#0b1a33!important;}}
 header[data-testid="stHeader"]{{background:transparent;}}
-h1,h2,h3,h4,p,label,.stMarkdown,.stCaption{{color:{TXT}!important;}}
-div[data-baseweb="tab-list"] button p{{color:{LB}!important;font-weight:600}}
-div[data-baseweb="tab-list"] button[aria-selected="true"] p{{color:{GOLD}!important}}
+section[data-testid="stSidebar"]{{background:{CARD};border-right:1px solid {MID};}}
+/* inputs: dark field, light text, visible border */
+div[data-baseweb="input"], div[data-baseweb="base-input"], div[data-baseweb="select"] > div, div[data-baseweb="textarea"]{{
+  background:#0b1a33!important;border:1px solid {MID}!important;}}
+input, textarea{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;caret-color:{GOLD};}}
+input::placeholder{{color:{MUTED}!important;-webkit-text-fill-color:{MUTED}!important;opacity:1}}
+div[data-baseweb="select"] *{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;}}
+ul[role="listbox"]{{background:{CARD}!important;}}
+ul[role="listbox"] li{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;}}
+ul[role="listbox"] li:hover, ul[role="listbox"] li[aria-selected="true"]{{background:{MID}!important;}}
+button[data-testid="stNumberInputStepDown"], button[data-testid="stNumberInputStepUp"]{{background:{MID}!important;color:{TXT}!important;}}
+/* labels and captions */
+label, label p, div[data-testid="stWidgetLabel"] p{{color:{LB}!important;-webkit-text-fill-color:{LB}!important;font-weight:600}}
+div[data-testid="stCaptionContainer"] p{{color:{MUTED}!important;-webkit-text-fill-color:{MUTED}!important}}
+h1,h2,h3,h4{{color:{TXT}!important}}
+/* tabs */
+div[data-baseweb="tab-list"] button p{{color:{LB}!important;-webkit-text-fill-color:{LB}!important;font-weight:600}}
+div[data-baseweb="tab-list"] button[aria-selected="true"] p{{color:{GOLD}!important;-webkit-text-fill-color:{GOLD}!important}}
+/* buttons: primary = gold with navy text; secondary = navy with gold border and white text */
+button[data-testid="stBaseButton-primary"], button[kind="primary"]{{background:{GOLD}!important;border:1px solid {GOLD}!important;}}
+button[data-testid="stBaseButton-primary"] *, button[kind="primary"] *{{color:{BLUE}!important;-webkit-text-fill-color:{BLUE}!important;font-weight:800}}
+button[data-testid="stBaseButton-secondary"], button[kind="secondary"]{{background:{MID}!important;border:1px solid {GOLD}!important;}}
+button[data-testid="stBaseButton-secondary"] *, button[kind="secondary"] *{{color:#ffffff!important;-webkit-text-fill-color:#ffffff!important;font-weight:700}}
+button[data-testid="stBaseButton-secondary"]:hover, button[kind="secondary"]:hover{{background:{BLUE}!important;}}
+/* alerts readable on dark */
+div[data-testid="stAlert"]{{background:{CARD}!important;border:1px solid {GOLD}!important;}}
+div[data-testid="stAlert"] p, div[data-testid="stAlert"] div{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important;}}
+/* expander */
+details summary p{{color:{GOLD}!important;-webkit-text-fill-color:{GOLD}!important;font-weight:700}}
+div[data-testid="stExpander"] details{{background:{CARD};border:1px solid {MID};}}
+div[data-testid="stExpander"] li, div[data-testid="stExpander"] p{{color:{TXT}!important}}
+/* radio / slider text */
+div[role="radiogroup"] p{{color:{TXT}!important;-webkit-text-fill-color:{TXT}!important}}
+div[data-testid="stSliderTickBarMin"], div[data-testid="stSliderTickBarMax"], div[data-testid="stThumbValue"]{{color:{GOLD}!important}}
 </style>""")
 
 
@@ -61,7 +89,12 @@ class FMPError(Exception):
     pass
 
 
-CALLS = {}  # (key-hash, date) -> live calls made through this app (cache misses only)
+@st.cache_resource
+def _call_store():
+    return {}  # (key-hash, date) -> live calls made through this app (cache misses only); survives reruns
+
+
+CALLS = _call_store()
 
 
 def _count(key):
@@ -196,9 +229,9 @@ with st.sidebar:
             st.error(str(e))
         if hits:
             labels = [f"{h['symbol']} — {h['name']} ({h['exchange']})" for h in hits]
-            pick = st.selectbox(f"{len(hits)} US matches", labels, index=None, placeholder="Choose a company")
-            if pick:
-                st.session_state.ticker = pick.split(" — ")[0]
+            choice = st.selectbox(f"{len(hits)} US matches", labels, index=None, placeholder="Choose a company")
+            if choice:
+                st.session_state.ticker = choice.split(" — ")[0]
         else:
             st.caption("No US-listed match. Try a shorter name.")
     elif q.strip():
@@ -218,7 +251,7 @@ with st.sidebar:
     go_btn = st.button("Fetch data", type="primary", width="stretch")
     usage_box = st.empty()
     st.caption("Free plan: 250 calls/day. A new company uses about 8 calls (statements, prices, DCF); "
-               "peers add about 6; a search uses 1. Repeats are cached for 24 hours.")
+               "peers about 2 each; a search uses 1. Repeats are cached for 24 hours.")
 
 st.html(card(t("FREE LEARNING TOOL · MBA · CFA · FRM", BLUE, 12, 800,
                f"background:{GOLD};-webkit-text-fill-color:{BLUE};padding:4px 10px;border-radius:5px;letter-spacing:1px") +
@@ -269,6 +302,13 @@ else:
         return df.iloc[::-1]  # oldest → newest
 
     I, B, C = frame(inc), frame(bal), frame(cfs)
+
+    def frame_annual(rows):
+        df = pd.DataFrame(rows)
+        if not df.empty:
+            df.index = df["date"].astype(str).str[:4]
+            df = df.iloc[::-1]
+        return df
 
     def col(df, name):
         return pd.to_numeric(df[name], errors="coerce") if name in df else pd.Series(index=df.index, dtype=float)
@@ -321,7 +361,7 @@ else:
         f.update_layout(title=dict(text=title, font=dict(color=TXT)), paper_bgcolor="rgba(0,0,0,0)",
                         plot_bgcolor="rgba(17,34,64,.6)", font=dict(color=TXT), height=380,
                         legend=dict(orientation="h", y=-0.2, font=dict(color=TXT)), margin=dict(l=20, r=20, t=50, b=20))
-        f.update_xaxes(gridcolor="rgba(255,255,255,.08)")
+        f.update_xaxes(gridcolor="rgba(255,255,255,.08)", type="category")
         f.update_yaxes(gridcolor="rgba(255,255,255,.08)")
         return f
 
@@ -432,9 +472,10 @@ else:
                 xs = np.linspace(rr["Market return"].min(), rr["Market return"].max(), 20)
                 f.add_scatter(x=xs * 100, y=(alpha + reg_beta * xs) * 100, mode="lines", name=f"Fit: β = {reg_beta:.2f}",
                               line=dict(color=GOLD, width=3))
-                f.update_xaxes(title="Market return %"); f.update_yaxes(title="Stock return %")
+                f.update_xaxes(title="Market return %", type="linear"); f.update_yaxes(title="Stock return %")
                 a.plotly_chart(f, width="stretch")
                 f = fig_base("Growth of $100")
+                f.update_xaxes(type="date")
                 f.add_scatter(x=RET.index, y=RET["Stock price"] / RET["Stock price"].iloc[0] * 100, name=sym, line=dict(color=GOLD, width=3))
                 f.add_scatter(x=RET.index, y=RET["SPY price"] / RET["SPY price"].iloc[0] * 100, name="S&P 500 (SPY)", line=dict(color=LB, width=3))
                 b.plotly_chart(f, width="stretch")
@@ -444,23 +485,39 @@ else:
 
     # ---------------- peers ----------------
     with tabs[4]:
-        st.caption("Compare the company with up to 4 peers on TTM (trailing twelve months) ratios. Uses about 6 API calls.")
+        st.caption("Compare the company with up to 4 US peers on TTM (trailing twelve months) ratios. About 2 API calls per company.")
         PEERS = st.session_state.get("peers") if st.session_state.get("peers_for") == sym else None
-        if st.button("Load peer comparison", key="peer_btn"):
+        if st.session_state.get("peer_sug_for") != sym:
+            st.session_state.peer_sug_for, st.session_state.peer_text = sym, ""
+        a, b = st.columns([3, 1])
+        if b.button("Suggest US peers (1 call)", key="peer_sug", width="stretch"):
             pl = safe("stock-peers", sym, key)
             if isinstance(pl, dict):
                 st.error(pl.get("_error", "Peer list not available."))
             else:
-                names = {d.get("symbol"): (d.get("companyName") or d.get("name") or "") for d in (pl or []) if d.get("symbol")}
-                tick = [sym] + [x for x in names if x != sym][:4]
+                us = [d["symbol"] for d in (pl or []) if d.get("symbol") and "." not in d["symbol"] and d["symbol"] != sym]
+                st.session_state.peer_text = ", ".join(us[:4])
+                if not us:
+                    st.warning("FMP's peer list for this company has no US-listed names. Type your own peers.")
+        peer_text = a.text_input("Peer tickers (US, comma-separated)", key="peer_text",
+                                 placeholder="e.g. MSFT, GOOGL, AMZN, META")
+        if st.button("Load peer comparison", key="peer_btn"):
+            tick = [sym] + [x.strip().upper() for x in peer_text.split(",") if x.strip() and x.strip().upper() != sym][:4]
+            if len(tick) == 1:
+                st.warning("Add at least one peer ticker, or click Suggest US peers.")
+            else:
                 rows = []
                 for tk in tick:
                     r_ = safe("ratios-ttm", tk, key)
                     r_ = r_[0] if isinstance(r_, list) and r_ else (r_ if isinstance(r_, dict) and "_error" not in r_ else {})
+                    nm = p.get("companyName") if tk == sym else ""
+                    if tk != sym:
+                        pr_ = safe("profile", tk, key)
+                        nm = pr_[0].get("companyName", "") if isinstance(pr_, list) and pr_ else ""
                     npm = pick(r_, "netProfitMarginTTM")
                     at_ = pick(r_, "assetTurnoverTTM")
                     lev = pick(r_, "financialLeverageRatioTTM", "equityMultiplierTTM")
-                    rows.append({"Ticker": tk, "Company": p.get("companyName") if tk == sym else names.get(tk, ""),
+                    rows.append({"Ticker": tk, "Company": nm,
                                  "Gross margin": pick(r_, "grossProfitMarginTTM"),
                                  "Operating margin": pick(r_, "operatingProfitMarginTTM"),
                                  "Net margin": npm, "Asset turnover (×)": at_, "Equity multiplier (×)": lev,
@@ -481,9 +538,10 @@ else:
                 view[c_] = [("–" if v_ is None or pd.isna(v_) else (f"{v_:.2f}×" if "(×)" in c_ else f"{v_*100:.1f}%"))
                             for v_ in PEERS[c_]]
             st.dataframe(view, width="stretch")
-            st.caption("ROE (DuPont) = net margin × asset turnover × equity multiplier. Peers are FMP's list for the same sector and size.")
+            st.caption("ROE (DuPont) = net margin × asset turnover × equity multiplier. US-listed tickers only on the free plan. "
+                       "Each peer uses 2 calls (ratios + name); results are kept for this session.")
         else:
-            st.info("Click the button to load peers (kept for this session, so it costs calls only once per company).")
+            st.html(card(t("Type up to 4 US peer tickers or click <b>Suggest US peers</b>, then <b>Load peer comparison</b>.", TXT, 14)))
 
     # ---------------- cost of capital ----------------
     with tabs[5]:
@@ -514,14 +572,22 @@ else:
     # ---------------- DCF ----------------
     with tabs[6]:
         st.caption("A simple 5-year free cash flow DCF, discounted at the WACC from the previous tab, next to FMP's own DCF value.")
-        shares = col(I, "weightedAverageShsOutDil").iloc[-1] if "weightedAverageShsOutDil" in I else None
+        Ia, fcf_d = I, fcf
+        if per == "quarter":  # DCF always runs on annual figures (2 extra cached calls)
+            try:
+                Ia = frame_annual(fmp("income-statement", sym, key, "annual", 5))
+                Ca = frame_annual(fmp("cash-flow-statement", sym, key, "annual", 5))
+                o_, c_x = col(Ca, "operatingCashFlow"), col(Ca, "capitalExpenditure")
+                fcf_d = col(Ca, "freeCashFlow"); fcf_d = fcf_d.where(fcf_d.notna(), o_ + c_x)
+                st.caption("Quarterly view selected: the DCF uses the last 5 annual cash flow statements.")
+            except FMPError as e:
+                st.warning(f"Annual statements needed for the DCF could not be loaded: {e}")
+        shares = col(Ia, "weightedAverageShsOutDil").iloc[-1] if "weightedAverageShsOutDil" in Ia else None
         if (shares is None or pd.isna(shares)) and mcap and price:
             shares = mcap / price
-        f0 = float(fcf.iloc[-1]) if pd.notna(fcf.iloc[-1]) else 0.0
-        fv = fcf.dropna()
+        f0 = float(fcf_d.iloc[-1]) if pd.notna(fcf_d.iloc[-1]) else 0.0
+        fv = fcf_d.dropna()
         cagr = (fv.iloc[-1] / fv.iloc[0]) ** (1 / (len(fv) - 1)) - 1 if len(fv) > 1 and fv.iloc[0] > 0 and fv.iloc[-1] > 0 else 0.05
-        if per == "quarter":
-            st.info("Switch the sidebar to annual statements for the DCF.")
         a, b, c3 = st.columns(3)
         g = a.number_input("FCF growth, years 1–5", -0.2, 0.4, float(round(min(max(cagr, 0.0), 0.15), 3)), 0.005, format="%.3f",
                            help="Default: historical FCF growth, capped between 0% and 15%.")
