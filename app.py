@@ -351,7 +351,7 @@ else:
                  pad="16px 22px"))
     kp = [("Price", f"{cur}{price:,.2f}" if price else "–",
            (t(f"{chg:+.2f}% today", GRN if (chg or 0) >= 0 else RED, 13, 700) if chg is not None else "")),
-          ("Market cap", money(mcap, cur), ""), ("Beta", f"{beta:.2f}" if beta else "–", t("vs market", MUTED, 12)),
+          ("Market cap", money(mcap, cur), ""), ("Beta (FMP)", f"{beta:.2f}" if beta else "–", t("monthly vs S&P 500", MUTED, 12)),
           ("Latest revenue", money(rev.iloc[-1], cur), t(I.index[-1], MUTED, 12)),
           ("Latest net income", money(ni.iloc[-1], cur), t(pct(R['Net margin'].iloc[-1]) + " margin", MUTED, 12))]
     cols = st.columns(len(kp))
@@ -466,7 +466,7 @@ else:
                 k_ = 12 if freq == "Monthly" else 52
                 vol_s, vol_m = rr["Stock return"].std() * np.sqrt(k_), rr["Market return"].std() * np.sqrt(k_)
                 cc = st.columns(5)
-                for c_, (h, v_) in zip(cc, [("Regression beta", f"{reg_beta:.2f}"), ("FMP beta", f"{beta:.2f}" if beta else "–"),
+                for c_, (h, v_) in zip(cc, [("Regression beta", f"{reg_beta:.2f}"), ("FMP beta (monthly)", f"{beta:.2f}" if beta else "–"),
                                            ("R²", f"{r2:.2f}"), ("Stock volatility (ann.)", pct(vol_s)),
                                            ("Market volatility (ann.)", pct(vol_m))]):
                     c_.html(card(t(h.upper(), GOLD, 11, 800, "letter-spacing:1px") + "<br>" + t(v_, TXT, 22, 800)))
@@ -485,6 +485,50 @@ else:
                 f.add_scatter(x=RET.index, y=RET["SPY price"] / RET["SPY price"].iloc[0] * 100, name="S&P 500 (SPY)", line=dict(color=LB, width=3))
                 b.plotly_chart(f, width="stretch")
                 st.caption(f"β = Cov(Rs, Rm) ÷ Var(Rm) on {len(rr)} {freq.lower()} returns. In Excel: =SLOPE(stock returns, market returns).")
+                # FMP-style betas from the same prices (no extra API calls): monthly returns vs S&P 500, 5 and 3 years
+                def mbeta(years):
+                    cut_ = pd.Timestamp(dt.date.today().replace(year=dt.date.today().year - years))
+                    d_ = pd.DataFrame({"s": px_s[px_s.index >= cut_].resample("ME").last(),
+                                       "m": px_m[px_m.index >= cut_].resample("ME").last()}).dropna().pct_change().dropna()
+                    if len(d_) < 12:
+                        return None, 0, None
+                    c_m = np.cov(d_["s"], d_["m"], ddof=1)
+                    return c_m[0, 1] / c_m[1, 1], len(d_), (c_m[0, 1], c_m[1, 1])
+                b5, n5, cv5 = mbeta(5)
+                b3, n3, _ = mbeta(3)
+                fmp_txt = f"{beta:.2f}" if beta else "–"
+                close = ""
+                if beta and b5 is not None and b3 is not None:
+                    near = "5-year" if abs(beta - b5) <= abs(beta - b3) else "3-year"
+                    close = (f"Here FMP's {fmp_txt} is closer to the {near} figure. Small differences also come from the exact "
+                             "month-end dates, the latest partial month, and whether prices are adjusted for dividends.")
+                with st.expander("📘 How FMP calculates beta (and why it can differ from the regression above)"):
+                    st.html(card(
+                        t("FMP's method", GOLD, 16, 800) + "<br>" +
+                        t("FMP defines beta as the stock's monthly price change relative to the S&P 500's monthly price change, "
+                          "over 5 years (60 months) when available:", TXT, 15) + "<br>" +
+                        t("β = Cov(R<sub>stock</sub>, R<sub>S&P 500</sub>) ÷ Var(R<sub>S&P 500</sub>)", TXT, 17, 700,
+                          "font-family:Georgia,serif") + "<br><br>" +
+                        t("Step by step", GOLD, 15, 800) + "<br>" +
+                        t("1. Take month-end prices of the stock and the S&P 500 for the last 60 months.<br>"
+                          "2. Monthly return = (this month's price ÷ last month's price) − 1, for both.<br>"
+                          "3. Covariance of the two return series, divided by the variance of the market's returns.<br>"
+                          "4. This is the slope of the regression line of stock returns on market returns — "
+                          "in Excel, =SLOPE(stock returns, market returns), as on the Beta sheet of the download.", TXT, 14) + "<br><br>" +
+                        t(f"{sym} worked through with the prices loaded here", GOLD, 15, 800) + "<br>" +
+                        (t(f"5 years, {n5} monthly returns: Cov = {cv5[0]:.5f}, Var(S&P 500) = {cv5[1]:.5f} → "
+                           f"β = {cv5[0]:.5f} ÷ {cv5[1]:.5f} = <b>{b5:.2f}</b>", TXT, 14) + "<br>" if b5 is not None else "") +
+                        (t(f"3 years, {n3} monthly returns: β = <b>{b3:.2f}</b>", TXT, 14) + "<br>" if b3 is not None else "") +
+                        t(f"FMP's published beta: <b>{fmp_txt}</b>", TXT, 14) + "<br><br>" +
+                        t("Why the numbers can differ", GOLD, 15, 800) + "<br>" +
+                        t("• <b>Window</b>: FMP's formula page says 5 years, but its DCF page describes a 3-year monthly beta. "
+                          "For some stocks (e.g. Apple) the 3-year and 5-year betas differ a lot. " + close + "<br>"
+                          "• <b>Frequency</b>: the regression above can use weekly returns; FMP uses monthly.<br>"
+                          "• <b>Market proxy</b>: this app uses SPY (an S&P 500 ETF, with dividends); FMP uses the S&P 500 index. "
+                          "The effect is very small.", TXT, 14) + "<br><br>" +
+                        t("Which to use? Both are valid market betas against the S&P 500. For teaching and WACC, the regression "
+                          "beta is fully transparent and reproducible in Excel. Optional refinement: Blume-adjusted beta "
+                          "= 0.67 × raw beta + 0.33 × 1, which pulls betas towards 1.", MUTED, 13)))
             else:
                 st.warning("Not enough price history to estimate beta.")
 
