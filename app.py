@@ -83,6 +83,32 @@ def fmp(endpoint, symbol, key, period="annual", limit=5):
     return data
 
 
+US_EXCH = {"NASDAQ", "NYSE", "AMEX", "NYSE ARCA", "NYSEARCA", "BATS", "CBOE"}
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def search_company(query, key):
+    """Name search (1 API call). Returns US-listed matches only."""
+    out = []
+    for ep in ("search-name", "search-symbol"):
+        try:
+            r = requests.get(f"{BASE}/{ep}", params={"query": query, "limit": 50, "apikey": key}, timeout=20)
+            data = r.json()
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            if data.get("Error Message"):
+                raise FMPError(data["Error Message"])
+            continue
+        for d in data or []:
+            ex = str(d.get("exchange") or d.get("exchangeShortName") or "").upper()
+            if ex in US_EXCH and d.get("symbol") and not any(o["symbol"] == d["symbol"] for o in out):
+                out.append({"symbol": d["symbol"], "name": d.get("name", ""), "exchange": ex})
+        if out:
+            break
+    return out[:25]
+
+
 def get_key():
     try:
         k = st.secrets.get("FMP_API_KEY", "")
@@ -100,7 +126,25 @@ with st.sidebar:
         st.caption("API key loaded from secrets.")
     else:
         key = st.text_input("FMP API key", type="password", help="Free key from financialmodelingprep.com. Not stored.")
-    symbol = st.text_input("US ticker", "AAPL").strip().upper()
+    if "ticker" not in st.session_state:
+        st.session_state.ticker = "AAPL"
+    q = st.text_input("Search company name", placeholder="e.g. Coca Cola, Nvidia, JPMorgan")
+    if q.strip() and key:
+        try:
+            hits = search_company(q.strip(), key)
+        except FMPError as e:
+            hits = []
+            st.error(str(e))
+        if hits:
+            labels = [f"{h['symbol']} — {h['name']} ({h['exchange']})" for h in hits]
+            pick = st.selectbox(f"{len(hits)} US matches", labels, index=None, placeholder="Choose a company")
+            if pick:
+                st.session_state.ticker = pick.split(" — ")[0]
+        else:
+            st.caption("No US-listed match. Try a shorter name.")
+    elif q.strip():
+        st.caption("Enter your API key first to search.")
+    symbol = st.text_input("US ticker", key="ticker").strip().upper()
     period = st.radio("Statements", ["annual", "quarter"], horizontal=True)
     limit = st.slider("Periods", 2, 5, 5)
     st.divider()
@@ -109,7 +153,7 @@ with st.sidebar:
     mrp = st.number_input("Market risk premium", 0.0, 0.15, 0.055, 0.001, format="%.3f")
     tax = st.number_input("Tax rate", 0.0, 0.5, 0.21, 0.01, format="%.2f")
     go_btn = st.button("Fetch data", type="primary", use_container_width=True)
-    st.caption("Each new ticker uses 5 API calls. Repeat look-ups are cached for 24 hours.")
+    st.caption("Each search uses 1 API call; each new ticker uses 5. Repeats are cached for 24 hours.")
 
 st.html(card(t("FREE LEARNING TOOL · MBA · CFA · FRM", BLUE, 12, 800,
                f"background:{GOLD};-webkit-text-fill-color:{BLUE};padding:4px 10px;border-radius:5px;letter-spacing:1px") +
